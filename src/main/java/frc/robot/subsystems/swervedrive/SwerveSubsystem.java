@@ -4,6 +4,16 @@
 
 package frc.robot.subsystems.swervedrive;
 
+import java.io.File;
+import com.pathplanner.*;
+
+import com.pathplanner.lib.commands.PPSwerveControllerCommand;
+import com.pathplanner.lib.path.PathConstraints;
+import com.pathplanner.lib.path.PathPlannerPath;
+import com.pathplanner.lib.path.PathPlannerTrajectory;
+import com.pathplanner.lib.util.PIDConstants;
+
+import edu.wpi.first.math.controller.PIDController;
 // import com.pathplanner.lib.PathConstraints;
 // import com.pathplanner.lib.PathPlanner;
 // import com.pathplanner.lib.PathPlannerTrajectory;
@@ -14,23 +24,19 @@ import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.kinematics.SwerveDriveKinematics;
+import edu.wpi.first.math.kinematics.SwerveDriveOdometry;
 import edu.wpi.first.math.trajectory.Trajectory;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.networktables.NetworkTable;
 import edu.wpi.first.networktables.NetworkTableEntry;
 import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.wpilibj.Timer;
-import edu.wpi.first.wpilibj.interfaces.Gyro;
-import edu.wpi.first.wpilibj.shuffleboard.Shuffleboard;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.InstantCommand;
+import edu.wpi.first.wpilibj2.command.SequentialCommandGroup;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
-import java.io.File;
-import java.util.List;
-import java.util.Map;
-
-import javax.crypto.ExemptionMechanism;
-
+import frc.robot.Constants;
 import swervelib.SwerveController;
 import swervelib.SwerveDrive;
 import swervelib.math.SwerveMath;
@@ -43,10 +49,12 @@ import swervelib.telemetry.SwerveDriveTelemetry.TelemetryVerbosity;
 public class SwerveSubsystem extends SubsystemBase
 {
   //LIMELIGHT INFO!
-NetworkTable table = NetworkTableInstance.getDefault().getTable("limelight");
-NetworkTableEntry tx = table.getEntry("tx");
-NetworkTableEntry ty = table.getEntry("ty");
-NetworkTableEntry ta = table.getEntry("ta");
+  NetworkTable table = NetworkTableInstance.getDefault().getTable("limelight");
+  NetworkTableEntry tx = table.getEntry("tx");
+  NetworkTableEntry ty = table.getEntry("ty");
+  NetworkTableEntry ta = table.getEntry("ta");
+  
+  private final SwerveDriveKinematics SwerveKinematics=getKinematics();
 
   /**
    * Swerve drive object.
@@ -83,7 +91,6 @@ NetworkTableEntry ta = table.getEntry("ta");
     System.out.println("\t\"drive\": " + driveConversionFactor);
     System.out.println("}");
 
-
     
 
     // Configure the Telemetry before creating the SwerveDrive to avoid unnecessary objects being created.
@@ -98,6 +105,8 @@ NetworkTableEntry ta = table.getEntry("ta");
       throw new RuntimeException(e);
     }
     swerveDrive.setHeadingCorrection(false); // Heading correction should only be used while controlling the robot via angle.
+    final SwerveDriveOdometry swerveODO = new SwerveDriveOdometry(SwerveKinematics, getHeading(), swerveDrive.getModulePositions());
+
   }
 
   /**
@@ -369,6 +378,57 @@ public void realVision()
   //TODO: Add limelight vision table information
   //swerveDrive.addVisionMeasurement(getPose(), maximumSpeed);
 }
+
+    // Assuming this method is part of a drivetrain subsystem that provides the
+    // necessary methods
+    public Command followPathCommand(String pathName){
+      PathPlannerPath path = PathPlannerPath.fromPathFile(pathName);
+  
+      // You must wrap the path following command in a FollowPathWithEvents command in order for event markers to work
+      return new FollowPathWithEvents(
+          new FollowPathHolonomic(
+              path,
+              this::getPose, // Robot pose supplier
+              this::getRobotRelativeSpeeds, // ChassisSpeeds supplier. MUST BE ROBOT RELATIVE
+              this::driveRobotRelative, // Method that will drive the robot given ROBOT RELATIVE ChassisSpeeds
+              new HolonomicPathFollowerConfig( // HolonomicPathFollowerConfig, this should likely live in your Constants class
+                  new PIDConstants(5.0, 0.0, 0.0), // Translation PID constants
+                  new PIDConstants(5.0, 0.0, 0.0), // Rotation PID constants
+                  4.5, // Max module speed, in m/s
+                  0.4, // Drive base radius in meters. Distance from robot center to furthest module.
+                  new ReplanningConfig() // Default path replanning config. See the API for the options here
+              ),
+              this // Reference to this subsystem to set requirements
+          ),
+          path, // FollowPathWithEvents also requires the path
+          this::getPose // FollowPathWithEvents also requires the robot pose supplier
+      );
+  }      return new SequentialCommandGroup(
+              new InstantCommand(() -> {
+                  // Reset odometry for the first path you run during auto
+                  if (isFirstPath) {
+                      this.resetOdometry(traj.getInitialHolonomicPose());
+                  }
+              }),
+              new PPSwerveControllerCommand(
+                      traj,
+                      this::getPose, // Pose supplier
+                      this.SwerveKinematics, // SwerveDriveKinematics
+                      new PIDController(Constants.Auton.xAutoPID, 0, 0), // X controller. Tune these values for your
+                                                                        // robot. Leaving them 0 will only use
+                                                                        // feedforwards.
+                      new PIDController(Constants.Auton.yAutoPID, 0, 0), // Y controller (usually the same values as X
+                                                                         // controller)
+                      new PIDController(Constants.Auton.angleAutoPID, 0, 0), // Rotation controller. Tune these values
+                                                                            // for your robot. Leaving them 0 will
+                                                                            // only use feedforwards.
+                      this::drive, // Module states consumer
+                      true, // Should the path be automatically mirrored depending on alliance color.
+                            // Optional, defaults to true
+                      this // Requires this drive subsystem
+              ));
+  }
+
   /**
    * Factory to fetch the PathPlanner command to follow the defined path.
    *
