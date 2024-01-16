@@ -4,7 +4,14 @@
 
 package frc.robot;
 
+import com.pathplanner.lib.util.HolonomicPathFollowerConfig;
+import com.pathplanner.lib.util.PIDConstants;
+import com.pathplanner.lib.util.ReplanningConfig;
+
+import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.geometry.Translation3d;
+import edu.wpi.first.math.kinematics.SwerveDriveKinematics;
+import edu.wpi.first.math.trajectory.TrapezoidProfile;
 import edu.wpi.first.math.util.Units;
 import swervelib.math.Matter;
 import swervelib.parser.PIDFConfig;
@@ -23,16 +30,41 @@ public final class Constants
   public static final double ROBOT_MASS = (30) * 0.453592; // 32lbs * kg per pound
   public static final Matter CHASSIS    = new Matter(new Translation3d(0, 0, Units.inchesToMeters(8)), ROBOT_MASS);
   public static final double LOOP_TIME  = 0.13; //s, 20ms + 110ms sprk max velocity lag
-
+  public static final double kTrackWidth = 0.5588;
+  public static final double kWheelBase = 0.5588;
+  public static final double kPhysicalMaxSpeedMetersPerSecond = 5;  
+  public static final SwerveDriveKinematics kDriveKinematics = new SwerveDriveKinematics(
+    new Translation2d(kWheelBase / 2, -kTrackWidth / 2),
+    new Translation2d(kWheelBase / 2, kTrackWidth / 2),
+    new Translation2d(-kWheelBase / 2, -kTrackWidth / 2),
+    new Translation2d(-kWheelBase / 2, kTrackWidth / 2));
   public static final class Auton
   {
 
     public static final PIDFConfig xAutoPID     = new PIDFConfig(0.7, 0, 0);
     public static final PIDFConfig yAutoPID     = new PIDFConfig(0.7, 0, 0);
     public static final PIDFConfig angleAutoPID = new PIDFConfig(0.4, 0, 0.01);
-
+    
+    public static final double kMaxAngularSpeedRadiansPerSecond = //
+    10 / 10; //Originally should be calculated using max angluar speed physically *2*PI/10 IDK where they got these numbers from but maybe one day ill know!
+public static final double kMaxAccelerationMetersPerSecondSquared = 3;
+public static final double kMaxAngularAccelerationRadiansPerSecondSquared = Math.PI / 4;
+    public static final double kPXController =  5.;
+    public static final double kPYController =  5.;
+    public static final double kPThetaController = .5;
+    public static final TrapezoidProfile.Constraints kThetaControllerConstraints = //
+    new TrapezoidProfile.Constraints(
+            kMaxAngularSpeedRadiansPerSecond,
+            kMaxAngularAccelerationRadiansPerSecondSquared);
     public static final double MAX_SPEED        = 4;
     public static final double MAX_ACCELERATION = 2;
+    public static final HolonomicPathFollowerConfig pathFollowerConfig = new HolonomicPathFollowerConfig(
+      new PIDConstants(5.0, 0, 0), // Translation constants 
+      new PIDConstants(5.0, 0, 0), // Rotation constants 
+      5, 
+      0.395224, // Drive base radius (distance from center to furthest module) 
+      new ReplanningConfig()
+    );
   }
 
   public static final class Drivebase

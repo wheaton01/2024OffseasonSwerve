@@ -6,8 +6,7 @@ package frc.robot.subsystems.swervedrive;
 
 import java.io.File;
 import com.pathplanner.*;
-
-import com.pathplanner.lib.commands.PPSwerveControllerCommand;
+import com.pathplanner.lib.auto.AutoBuilder;
 import com.pathplanner.lib.path.PathConstraints;
 import com.pathplanner.lib.path.PathPlannerPath;
 import com.pathplanner.lib.path.PathPlannerTrajectory;
@@ -25,12 +24,14 @@ import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.kinematics.SwerveDriveKinematics;
 import edu.wpi.first.math.kinematics.SwerveDriveOdometry;
+import edu.wpi.first.math.kinematics.SwerveModuleState;
 import edu.wpi.first.math.trajectory.Trajectory;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.networktables.NetworkTable;
 import edu.wpi.first.networktables.NetworkTableEntry;
 import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.wpilibj.Timer;
+import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.InstantCommand;
@@ -53,6 +54,16 @@ public class SwerveSubsystem extends SubsystemBase
   NetworkTableEntry tx = table.getEntry("tx");
   NetworkTableEntry ty = table.getEntry("ty");
   NetworkTableEntry ta = table.getEntry("ta");
+
+  //setting up some basic Chassis Speeds
+  ChassisSpeeds zeroChassisSpeeds = new ChassisSpeeds();
+  Translation2d zeroTranslation2d = new Translation2d();
+
+
+  private SwerveDriveOdometry odometry;
+
+  
+  private Field2d field = new Field2d();
   
   private final SwerveDriveKinematics SwerveKinematics=getKinematics();
 
@@ -106,7 +117,6 @@ public class SwerveSubsystem extends SubsystemBase
     }
     swerveDrive.setHeadingCorrection(false); // Heading correction should only be used while controlling the robot via angle.
     final SwerveDriveOdometry swerveODO = new SwerveDriveOdometry(SwerveKinematics, getHeading(), swerveDrive.getModulePositions());
-
   }
 
   /**
@@ -142,6 +152,7 @@ public class SwerveSubsystem extends SubsystemBase
                       false); // Open loop is disabled since it shouldn't be used most of the time.
   }
   //LIMELIGHT DRIVE
+
   public double getLimelightX(){
     return tx.getDouble(0.0);  }
   public double getLimelightY(){
@@ -183,6 +194,8 @@ public class SwerveSubsystem extends SubsystemBase
     SmartDashboard.putNumber("Gyro YAW",  aYaw.getDegrees());
     SmartDashboard.putNumber("Gyro Roll", aRoll.getDegrees());
 
+    odometry.update(getHeading(), swerveDrive.getModulePositions());
+
   }
 
   @Override
@@ -207,10 +220,14 @@ public class SwerveSubsystem extends SubsystemBase
    *
    * @param initialHolonomicPose The pose to set the odometry to
    */
-  public void resetOdometry(Pose2d initialHolonomicPose)
+  public void resetOdometry(Pose2d pose)
   {
-    swerveDrive.resetOdometry(initialHolonomicPose);
+    swerveDrive.resetOdometry(pose);
   }
+  public ChassisSpeeds getSpeeds(){
+   return swerveDrive.getRobotVelocity();
+  }
+  
 
   /**
    * Gets the current pose (position and rotation) of the robot, as reported by odometry.
@@ -220,7 +237,9 @@ public class SwerveSubsystem extends SubsystemBase
   public Pose2d getPose()
   {
     return swerveDrive.getPose();
-  }
+  }   
+
+
 
   /**
    * Set chassis speeds with closed-loop velocity control.
@@ -378,56 +397,63 @@ public void realVision()
   //TODO: Add limelight vision table information
   //swerveDrive.addVisionMeasurement(getPose(), maximumSpeed);
 }
+public void setModuleStates(SwerveModuleState[] desiredStates) {
+  swerveDrive.setModuleStates(desiredStates, false);
+}
+public void stopModules() {
+    swerveDrive.drive(zeroChassisSpeeds, zeroTranslation2d);
+}
 
-    // Assuming this method is part of a drivetrain subsystem that provides the
-    // necessary methods
-    public Command followPathCommand(String pathName){
-      PathPlannerPath path = PathPlannerPath.fromPathFile(pathName);
+  //   // Assuming this method is part of a drivetrain subsystem that provides the
+  //   // necessary methods
+  //   public Command followPathCommand(String pathName){
+  //     PathPlannerPath path = PathPlannerPath.fromPathFile(pathName);
   
-      // You must wrap the path following command in a FollowPathWithEvents command in order for event markers to work
-      return new FollowPathWithEvents(
-          new FollowPathHolonomic(
-              path,
-              this::getPose, // Robot pose supplier
-              this::getRobotRelativeSpeeds, // ChassisSpeeds supplier. MUST BE ROBOT RELATIVE
-              this::driveRobotRelative, // Method that will drive the robot given ROBOT RELATIVE ChassisSpeeds
-              new HolonomicPathFollowerConfig( // HolonomicPathFollowerConfig, this should likely live in your Constants class
-                  new PIDConstants(5.0, 0.0, 0.0), // Translation PID constants
-                  new PIDConstants(5.0, 0.0, 0.0), // Rotation PID constants
-                  4.5, // Max module speed, in m/s
-                  0.4, // Drive base radius in meters. Distance from robot center to furthest module.
-                  new ReplanningConfig() // Default path replanning config. See the API for the options here
-              ),
-              this // Reference to this subsystem to set requirements
-          ),
-          path, // FollowPathWithEvents also requires the path
-          this::getPose // FollowPathWithEvents also requires the robot pose supplier
-      );
-  }      return new SequentialCommandGroup(
-              new InstantCommand(() -> {
-                  // Reset odometry for the first path you run during auto
-                  if (isFirstPath) {
-                      this.resetOdometry(traj.getInitialHolonomicPose());
-                  }
-              }),
-              new PPSwerveControllerCommand(
-                      traj,
-                      this::getPose, // Pose supplier
-                      this.SwerveKinematics, // SwerveDriveKinematics
-                      new PIDController(Constants.Auton.xAutoPID, 0, 0), // X controller. Tune these values for your
-                                                                        // robot. Leaving them 0 will only use
-                                                                        // feedforwards.
-                      new PIDController(Constants.Auton.yAutoPID, 0, 0), // Y controller (usually the same values as X
-                                                                         // controller)
-                      new PIDController(Constants.Auton.angleAutoPID, 0, 0), // Rotation controller. Tune these values
-                                                                            // for your robot. Leaving them 0 will
-                                                                            // only use feedforwards.
-                      this::drive, // Module states consumer
-                      true, // Should the path be automatically mirrored depending on alliance color.
-                            // Optional, defaults to true
-                      this // Requires this drive subsystem
-              ));
-  }
+  //     // You must wrap the path following command in a FollowPathWithEvents command in order for event markers to work
+  //         return new FollowPathWithEvents(
+  //             new FollowPathHolonomic(
+  //                 path,
+  //                 this::getPose, // Robot pose supplier
+  //                 this::getRobotRelativeSpeeds, // ChassisSpeeds supplier. MUST BE ROBOT RELATIVE
+  //                 this::driveRobotRelative, // Method that will drive the robot given ROBOT RELATIVE ChassisSpeeds
+  //                 new HolonomicPathFollowerConfig( // HolonomicPathFollowerConfig, this should likely live in your Constants class
+  //                     new PIDConstants(5.0, 0.0, 0.0), // Translation PID constants
+  //                     new PIDConstants(5.0, 0.0, 0.0), // Rotation PID constants
+  //                     4.5, // Max module speed, in m/s
+  //                     0.4, // Drive base radius in meters. Distance from robot center to furthest module.
+  //                     new ReplanningConfig() // Default path replanning config. See the API for the options here
+  //                 ),
+  //                 this // Reference to this subsystem to set requirements
+  //             ),
+  //             path, // FollowPathWithEvents also requires the path
+  //             this::getPose // FollowPathWithEvents also requires the robot pose supplier
+  //         );
+  //     }      return new SequentialCommandGroup(
+  //             new InstantCommand(() -> {
+  //                 // Reset odometry for the first path you run during auto
+  //                 if (isFirstPath) {
+  //                     this.resetOdometry(traj.getInitialHolonomicPose());
+  //                 }
+  //             }
+
+  //             new PPSwerveControllerCommand(
+  //                     traj,
+  //                     this::getPose, // Pose supplier
+  //                     this.SwerveKinematics, // SwerveDriveKinematics
+  //                     new PIDController(Constants.Auton.xAutoPID, 0, 0), // X controller. Tune these values for your
+  //                                                                       // robot. Leaving them 0 will only use
+  //                                                                       // feedforwards.
+  //                     new PIDController(Constants.Auton.yAutoPID, 0, 0), // Y controller (usually the same values as X
+  //                                                                        // controller)
+  //                     new PIDController(Constants.Auton.angleAutoPID, 0, 0), // Rotation controller. Tune these values
+  //                                                                           // for your robot. Leaving them 0 will
+  //                                                                           // only use feedforwards.
+  //                     this::drive, // Module states consumer
+  //                     true, // Should the path be automatically mirrored depending on alliance color.
+  //                           // Optional, defaults to true
+  //                     this // Requires this drive subsystem
+  //             ));
+  // }
 
   /**
    * Factory to fetch the PathPlanner command to follow the defined path.
