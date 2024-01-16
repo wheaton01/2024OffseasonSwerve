@@ -62,9 +62,9 @@ addRequirements(swerve);
                  !driveMode.getAsBoolean());
   }
   if (Math.abs(tx)>1.5){
-    swerve.drive(new Translation2d(xVelocity+(.005*tx) * swerve.maximumSpeed, yVelocity * swerve.maximumSpeed),
-    angVelocity * controller.config.maxAngularVelocity,
-    !driveMode.getAsBoolean());
+    swerve.drive(new Translation2d(xVelocity+(.05*ta*(.5*ta)) * swerve.maximumSpeed, yVelocity +(.05*ty*(.5*tx))* swerve.maximumSpeed),
+    angVelocity+(.05*tx*(.01*ta)) * controller.config.maxAngularVelocity,//Here im getting a bit fancy trying to incorporate multiple 'axes' into the alignment
+    driveMode.getAsBoolean());//may need to do some thinking here as to how i could do both robot centric driving for apriltags but also able to keep field centric for controls without affecting alignment HMMM
   }
 
   }
